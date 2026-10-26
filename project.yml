@@ -42,7 +42,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.utilities
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
-        NSHumanReadableCopyright: "Brook uses rsync, licensed under the GNU GPL v3."
+        NSHumanReadableCopyright: "Copyright © 2026 Jiaming Yu. Licensed under the GNU GPL v3."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.brook.mac

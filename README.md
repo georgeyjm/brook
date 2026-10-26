@@ -94,6 +94,10 @@ Your syncs and run history live in `~/Library/Application Support/Brook/`:
 
 Quit Brook and delete that folder to start fresh.
 
+## License
+
+Brook is free software, licensed under the [GNU General Public License v3.0](LICENSE). You may use, study, share and modify it, and anything you distribute based on it must be released under the same license.
+
 ## Credits
 
 rsync is free software by Andrew Tridgell, Wayne Davison and others, released under the GNU General Public License v3. Brook runs it as a separate program. Its source is available from [rsync.samba.org](https://rsync.samba.org/), and `Vendor/rsync/build-rsync.sh` shows exactly how the bundled copy is built.
