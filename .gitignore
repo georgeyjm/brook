@@ -8,3 +8,6 @@ Brook.xcodeproj/
 Vendor/rsync/build/
 Vendor/rsync/out/
 dist/
+
+# Local planning notes
+docs/
