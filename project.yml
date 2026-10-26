@@ -1,0 +1,71 @@
+# Generate the Xcode project with:  xcodegen generate
+# The .xcodeproj is not committed; this file is the source of truth.
+name: Brook
+
+options:
+  bundleIdPrefix: app.brook
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    MACOSX_DEPLOYMENT_TARGET: "26.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEAD_CODE_STRIPPING: YES
+
+packages:
+  SyncCore:
+    path: Packages/SyncCore
+
+targets:
+  Brook:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+    dependencies:
+      - package: SyncCore
+        products: [SyncModel, RsyncCore, SyncStore, SyncScheduler, SSHKit, SyncEngine]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: Brook
+        CFBundleDisplayName: Brook
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.utilities
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "Brook uses rsync, licensed under the GNU GPL v3."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.brook.mac
+        PRODUCT_NAME: Brook
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        # Ad-hoc signing for local development; release.sh re-signs with Developer ID.
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_APP_SANDBOX: NO
+        COMBINE_HIDPI_IMAGES: YES
+    postBuildScripts:
+      - name: Embed rsync helper
+        basedOnDependencyAnalysis: false
+        script: |
+          set -e
+          HELPER="$SRCROOT/Vendor/rsync/out/rsync"
+          if [ ! -x "$HELPER" ]; then
+            echo "warning: Bundled rsync not built. Run Vendor/rsync/build-rsync.sh (falling back to Homebrew rsync at runtime)."
+            exit 0
+          fi
+          DEST="$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
+          mkdir -p "$DEST"
+          cp -f "$HELPER" "$DEST/rsync"
+          cp -f "$SRCROOT/Vendor/rsync/out/COPYING" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/rsync-COPYING.txt"
+          codesign --force --options runtime --timestamp=none --sign "${EXPANDED_CODE_SIGN_IDENTITY:--}" "$DEST/rsync"

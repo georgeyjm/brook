@@ -1,0 +1,10 @@
+.DS_Store
+.build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcworkspace/xcuserdata/
+Brook.xcodeproj/
+Vendor/rsync/build/
+Vendor/rsync/out/
+dist/

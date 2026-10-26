@@ -1,0 +1,28 @@
+*deleting   src/stale.txt
+>f.s....... src/file1.bin
+        200,000  33%  190.73MB/s    0:00:00 (xfr#1, to-chk=2/8)
+>f+++++++++ src/file2.bin
+>f+++++++++ src/file3.bin
+cL+++++++++ src/link -> file1.bin
+cd+++++++++ src/sub/
+>f+++++++++ src/sub/héllo wörld.txt
+        600,006  99%  572.21MB/s    0:00:00 (xfr#4, to-chk=0/8)
+>f+++++++++ src/sub/new\#012line.txt
+        600,007  99%  572.21MB/s    0:00:00 (xfr#5, to-chk=0/8)
+
+Number of files: 8 (reg: 5, dir: 2, link: 1)
+Number of created files: 6 (reg: 4, dir: 1, link: 1)
+Number of deleted files: 1 (reg: 1)
+Number of regular files transferred: 5
+Total file size: 600,016 bytes
+Total transferred file size: 600,007 bytes
+Literal data: 0 bytes
+Matched data: 0 bytes
+File list size: 0
+File list generation time: 0.002 seconds
+File list transfer time: 0.000 seconds
+Total bytes sent: 262
+Total bytes received: 63
+
+sent 262 bytes  received 63 bytes  650.00 bytes/sec
+total size is 600,016  speedup is 1,846.20 (DRY RUN)
