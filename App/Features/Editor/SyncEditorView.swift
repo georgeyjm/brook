@@ -207,95 +207,160 @@ private struct IconPicker: View {
 
 // MARK: - Locations
 
+/// "From → To" as two tiles side by side, with a swap button between them.
 private struct LocationsSection: View {
-    @Environment(AppModel.self) private var model
     @Binding var job: SyncJob
     var onAddServer: (EndpointSide) -> Void
 
     var body: some View {
         Section("What to sync") {
-            EndpointEditor(label: "From", endpoint: $job.source, chooseTitle: "Choose Folder to Sync",
-                           onAddServer: { onAddServer(.source) })
-            EndpointEditor(label: "To", endpoint: $job.destination, chooseTitle: "Choose Destination",
-                           onAddServer: { onAddServer(.destination) })
-            HStack {
-                Spacer()
-                Button("Swap From and To", systemImage: "arrow.up.arrow.down") {
-                    let source = job.source
-                    job.source = job.destination
-                    job.destination = source
+            HStack(alignment: .center, spacing: 10) {
+                EndpointTile(title: "From", endpoint: $job.source, emptyTitle: "Choose a folder to sync",
+                             onAddServer: { onAddServer(.source) })
+                VStack(spacing: 6) {
+                    Image(systemName: "arrow.right")
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(job.mode == .mirror ? Color.orange : Color.accentColor)
+                        .accessibilityHidden(true)
+                    Button("Swap", systemImage: "arrow.left.arrow.right") {
+                        let source = job.source
+                        job.source = job.destination
+                        job.destination = source
+                    }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Swap From and To")
                 }
-                .buttonStyle(.borderless)
-                .font(.callout)
+                EndpointTile(title: "To", endpoint: $job.destination, emptyTitle: "Choose where to copy to",
+                             onAddServer: { onAddServer(.destination) })
             }
+            .padding(.vertical, 4)
         }
     }
 }
 
-private struct EndpointEditor: View {
+/// One side of a sync: a folder on this Mac (click to choose, or drop a folder on it) or a
+/// path on a server. The corner menu switches between the two.
+private struct EndpointTile: View {
     @Environment(AppModel.self) private var model
-    let label: String
+    let title: String
     @Binding var endpoint: Endpoint
-    let chooseTitle: String
+    let emptyTitle: String
     var onAddServer: () -> Void
 
-    private enum Location: Hashable {
-        case mac
-        case host(UUID)
-        case addServer
-    }
+    @State private var isDropTargeted = false
 
-    private var location: Binding<Location> {
-        Binding {
-            endpoint.hostID.map { .host($0) } ?? .mac
-        } set: { newValue in
-            switch newValue {
-            case .mac where endpoint.isRemote: endpoint = .local("")
-            case .host(let id): endpoint = .remote(hostID: id, path: endpoint.isRemote ? endpoint.path : "")
-            case .addServer: onAddServer()
-            default: break
-            }
-        }
-    }
+    private var isEmpty: Bool { !endpoint.isRemote && endpoint.path.isEmpty }
 
     var body: some View {
-        Picker(label, selection: location) {
-            Label("This Mac", systemImage: "laptopcomputer").tag(Location.mac)
-            if !model.hosts.isEmpty {
-                Divider()
-                ForEach(model.hosts) { host in
-                    Label(host.name, systemImage: "server.rack").tag(Location.host(host.id))
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                locationMenu
             }
-            Divider()
-            Label("Add Server…", systemImage: "plus").tag(Location.addServer)
+            content
         }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+        .background(isDropTargeted ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.04),
+                    in: .rect(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(isEmpty || isDropTargeted ? Color.accentColor.opacity(0.6) : Color.primary.opacity(0.1),
+                              style: StrokeStyle(lineWidth: isEmpty || isDropTargeted ? 1.5 : 1, dash: isEmpty ? [5, 4] : []))
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let folder = urls.first(where: \.hasDirectoryPath) else { return false }
+            endpoint = .local(path: folder.path, volume: SystemVolumes.identity(forPath: folder.path))
+            return true
+        } isTargeted: { isDropTargeted = $0 }
+    }
 
+    @ViewBuilder
+    private var content: some View {
         switch endpoint {
         case .local(let path, let volume):
-            LabeledContent("Folder") {
-                HStack(spacing: 8) {
-                    if path.isEmpty {
-                        Text("None chosen").foregroundStyle(.secondary)
-                    } else {
-                        Image(systemName: volume != nil || path.hasPrefix("/Volumes/") ? "externaldrive.fill" : "folder.fill")
+            Button { choose(startingAt: path) } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: path.isEmpty ? "folder.badge.plus"
+                          : (volume != nil || path.hasPrefix("/Volumes/")) ? "externaldrive.fill" : "folder.fill")
+                        .font(.title2)
+                        .foregroundStyle(path.isEmpty ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(path.isEmpty ? emptyTitle : (path as NSString).lastPathComponent)
+                            .font(.headline)
+                            .foregroundStyle(path.isEmpty ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+                            .lineLimit(1)
+                        Text(path.isEmpty ? "or drop a folder here" : subtitle(path: path, volume: volume))
+                            .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text((path as NSString).abbreviatingWithTildeInPath)
-                            .lineLimit(1).truncationMode(.middle)
-                            .help(path)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    Button("Choose…") {
-                        if let chosen = FinderActions.chooseFolder(prompt: "Choose", startingAt: path.isEmpty ? nil : path) {
-                            endpoint = .local(path: chosen, volume: SystemVolumes.identity(forPath: chosen))
+                    Spacer(minLength: 0)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help(path.isEmpty ? "Choose a folder" : "\(path)\nClick to choose a different folder")
+
+        case .remote(let hostID, let path):
+            VStack(alignment: .leading, spacing: 4) {
+                TextField(text: Binding(get: { path }, set: { endpoint = .remote(hostID: hostID, path: $0) }),
+                          prompt: Text("Home folder")) { EmptyView() }
+                    .labelsHidden()
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.monospaced())
+                Text("A folder on \(model.host(id: hostID)?.name ?? "the server"), like /volume1/photos or ~/Documents.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var locationMenu: some View {
+        let hostID = endpoint.hostID
+        let currentName = hostID.flatMap { model.host(id: $0)?.name } ?? "This Mac"
+        return Menu {
+            Button("This Mac", systemImage: "laptopcomputer") {
+                if endpoint.isRemote { endpoint = .local("") }
+            }
+            if !model.hosts.isEmpty {
+                Section("Servers") {
+                    ForEach(model.hosts) { host in
+                        Button(host.name, systemImage: "server.rack") {
+                            endpoint = .remote(hostID: host.id, path: endpoint.isRemote ? endpoint.path : "")
                         }
                     }
                 }
             }
-        case .remote(let hostID, let path):
-            TextField("Folder on server", text: Binding(
-                get: { path },
-                set: { endpoint = .remote(hostID: hostID, path: $0) }
-            ), prompt: Text("/path/to/folder (empty = home folder)"))
+            Divider()
+            Button("Add Server…", systemImage: "plus", action: onAddServer)
+        } label: {
+            Label(currentName, systemImage: hostID == nil ? "laptopcomputer" : "server.rack")
+                .font(.caption)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
+        .fixedSize()
+        .help("Choose whether this side is on this Mac or a server")
+    }
+
+    private func subtitle(path: String, volume: VolumeIdentity?) -> String {
+        let parent = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
+        if let volume { return "On \(volume.name) · \(parent)" }
+        return parent
+    }
+
+    private func choose(startingAt path: String) {
+        if let chosen = FinderActions.chooseFolder(prompt: "Choose", startingAt: path.isEmpty ? nil : path) {
+            endpoint = .local(path: chosen, volume: SystemVolumes.identity(forPath: chosen))
         }
     }
 }
@@ -396,11 +461,11 @@ private struct ScheduleSection: View {
     @Binding var job: SyncJob
 
     private enum Kind: String, CaseIterable, Identifiable {
-        case manual = "Only when I click Sync"
-        case hourly = "Every few hours"
-        case daily = "Every day"
-        case weekly = "On certain days"
-        case monthly = "Every month"
+        case manual = "Manually"
+        case hourly = "Hourly"
+        case daily = "Daily"
+        case weekly = "Weekly"
+        case monthly = "Monthly"
         var id: Self { self }
     }
 
@@ -455,48 +520,39 @@ private struct ScheduleSection: View {
 
     var body: some View {
         Section {
-            Picker("Run", selection: kind) {
+            Picker("Run", selection: kind.animation(.snappy)) {
                 ForEach(Kind.allCases) { Text($0.rawValue).tag($0) }
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.vertical, 2)
 
             switch job.schedule?.rule {
+            case nil:
+                Text("Runs only when you click Sync Now.")
+                    .foregroundStyle(.secondary)
             case .hourly(let every)?:
                 Stepper("Every \(every) hour\(every == 1 ? "" : "s")",
                         value: Binding(get: { every }, set: { job.schedule?.rule = .hourly(every: $0) }), in: 1...24)
             case .daily?:
-                DatePicker("At", selection: timeBinding, displayedComponents: .hourAndMinute)
+                DatePicker("Every day at", selection: timeBinding, displayedComponents: .hourAndMinute)
             case .weekly(let days, let time)?:
                 LabeledContent("On") {
-                    HStack(spacing: 4) {
-                        ForEach(Weekday.localeOrdered, id: \.self) { day in
-                            let isOn = days.contains(day)
-                            Button(day.veryShortName) {
-                                var newDays = days
-                                if isOn { newDays.remove(day) } else { newDays.insert(day) }
-                                if !newDays.isEmpty { job.schedule?.rule = .weekly(days: newDays, at: time) }
-                            }
-                            .buttonStyle(.plain)
-                            .frame(width: 28, height: 28)
-                            .background(isOn ? Color.accentColor : Color.secondary.opacity(0.15), in: .circle)
-                            .foregroundStyle(isOn ? .white : .primary)
-                            .accessibilityLabel(day.shortName)
-                            .accessibilityAddTraits(isOn ? .isSelected : [])
-                        }
-                    }
+                    WeekdayPicker(days: days) { job.schedule?.rule = .weekly(days: $0, at: time) }
                 }
                 DatePicker("At", selection: timeBinding, displayedComponents: .hourAndMinute)
             case .monthly(let day, let time)?:
                 Stepper("On day \(day)\(day > 28 ? " (or the month's last day)" : "")",
                         value: Binding(get: { day }, set: { job.schedule?.rule = .monthly(day: $0, at: time) }), in: 1...31)
                 DatePicker("At", selection: timeBinding, displayedComponents: .hourAndMinute)
-            case nil:
-                EmptyView()
             }
 
             if job.schedule != nil {
-                Toggle("Catch up on runs missed while the Mac was asleep or off",
-                       isOn: Binding(get: { job.schedule?.catchUpMissedRuns ?? true },
-                                     set: { job.schedule?.catchUpMissedRuns = $0 }))
+                Toggle(isOn: Binding(get: { job.schedule?.catchUpMissedRuns ?? true },
+                                     set: { job.schedule?.catchUpMissedRuns = $0 })) {
+                    Text("Catch up on missed runs")
+                    Text("If the Mac was asleep or off at the scheduled time, sync as soon as possible afterwards.")
+                }
             }
         } header: {
             Text("When")
@@ -509,137 +565,239 @@ private struct ScheduleSection: View {
     }
 }
 
+private struct WeekdayPicker: View {
+    let days: Set<Weekday>
+    let onChange: (Set<Weekday>) -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Weekday.localeOrdered, id: \.self) { day in
+                let isOn = days.contains(day)
+                Button(day.veryShortName) {
+                    var newDays = days
+                    if isOn { newDays.remove(day) } else { newDays.insert(day) }
+                    if !newDays.isEmpty { onChange(newDays) }
+                }
+                .buttonStyle(.plain)
+                .frame(width: 28, height: 28)
+                .background(isOn ? Color.accentColor : Color.secondary.opacity(0.15), in: .circle)
+                .foregroundStyle(isOn ? .white : .primary)
+                .accessibilityLabel(day.shortName)
+                .accessibilityAddTraits(isOn ? .isSelected : [])
+            }
+        }
+    }
+}
+
+// MARK: - Collapsible sections
+
+/// A whole-row, clickable section heading with a one-line summary of what's inside.
+private struct CollapsibleHeader: View {
+    let title: String
+    let symbol: String
+    let summary: String
+    @Binding var isExpanded: Bool
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy) { isExpanded.toggle() }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline)
+                    Text(summary)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .padding(.vertical, 6)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityHint("Shows or hides \(title.lowercased())")
+    }
+}
+
 // MARK: - Options
 
 private struct OptionsSection: View {
     @Binding var job: SyncJob
     @Binding var isExpanded: Bool
 
+    private var summary: String {
+        var parts: [String] = []
+        let rules = job.filters.filter { $0.isEnabled && !$0.pattern.isEmpty }.count
+        if rules > 0 { parts.append("\(rules) skip rule\(rules == 1 ? "" : "s")") }
+        if job.options.compareByChecksum { parts.append("compares contents") }
+        if job.options.bandwidthLimitKBps != nil { parts.append("speed limit") }
+        if job.options.backupDirectory != nil { parts.append("keeps replaced files") }
+        if job.options.compress { parts.append("compressed") }
+        return parts.isEmpty ? "Skip files, speed limit, file details" : parts.joined(separator: " · ").capitalizedFirst
+    }
+
     var body: some View {
         Section {
-            DisclosureGroup(isExpanded: $isExpanded) {
-                VStack(alignment: .leading, spacing: 14) {
-                    FiltersEditor(filters: $job.filters)
-                    Divider()
+            CollapsibleHeader(title: "Options", symbol: "slider.horizontal.3", summary: summary, isExpanded: $isExpanded)
 
-                    Toggle("Keep Finder tags and other file metadata", isOn: $job.options.preserveExtendedAttributes)
-                        .help("--xattrs")
-                    Toggle("Keep creation dates", isOn: $job.options.preserveCreationDates)
-                        .help("--crtimes")
-                    Toggle("Compare file contents, not just size and date", isOn: $job.options.compareByChecksum)
-                        .help("--checksum: slower, but catches changes that keep the same size and date")
-                    Toggle("Don't overwrite files that are newer at the destination", isOn: $job.options.skipNewerAtDestination)
-                        .help("--update")
-                    Toggle("Resume big files if interrupted", isOn: $job.options.keepPartialFiles)
-                        .help("--partial")
-                    Toggle("Compress while transferring (helps on slow networks)", isOn: $job.options.compress)
-                        .help("--compress")
-                    Toggle("Stay on one drive (skip other mounted volumes)", isOn: $job.options.stayOnOneFileSystem)
-                        .help("--one-file-system")
+            if isExpanded {
+                FilterRows(filters: $job.filters)
 
-                    HStack {
-                        Toggle("Limit speed to", isOn: Binding(
-                            get: { job.options.bandwidthLimitKBps != nil },
-                            set: { job.options.bandwidthLimitKBps = $0 ? 5_000 : nil }
-                        ))
-                        TextField("KB/s", value: $job.options.bandwidthLimitKBps, format: .number)
-                            .frame(width: 90)
-                            .disabled(job.options.bandwidthLimitKBps == nil)
-                        Text("KB/s").foregroundStyle(.secondary)
-                    }
-                    .help("--bwlimit")
-
-                    HStack {
-                        Toggle("Keep replaced files in", isOn: Binding(
-                            get: { job.options.backupDirectory != nil },
-                            set: { job.options.backupDirectory = $0 ? ".replaced" : nil }
-                        ))
-                        TextField("Folder", text: Binding(
-                            get: { job.options.backupDirectory ?? "" },
-                            set: { job.options.backupDirectory = $0 }
-                        ))
-                        .disabled(job.options.backupDirectory == nil)
-                    }
-                    .help("--backup --backup-dir: overwritten and deleted files are moved here (relative to the destination) instead of being lost")
-
-                    if job.mode == .mirror {
-                        Divider()
-                        SafetyEditor(safety: $job.safety)
-                    }
+                Toggle(isOn: $job.options.preserveExtendedAttributes) {
+                    Text("Keep Finder tags and file metadata")
                 }
-                .padding(.top, 8)
-            } label: {
-                Label("Options", systemImage: "slider.horizontal.3")
+                .help("--xattrs")
+                Toggle("Keep creation dates", isOn: $job.options.preserveCreationDates)
+                    .help("--crtimes")
+                Toggle(isOn: $job.options.compareByChecksum) {
+                    Text("Compare file contents")
+                    Text("Slower, but catches changes that keep the same size and date.")
+                }
+                .help("--checksum")
+                Toggle("Don't overwrite newer files at the destination", isOn: $job.options.skipNewerAtDestination)
+                    .help("--update")
+                Toggle(isOn: $job.options.keepPartialFiles) {
+                    Text("Resume big files if interrupted")
+                }
+                .help("--partial")
+                Toggle(isOn: $job.options.compress) {
+                    Text("Compress while transferring")
+                    Text("Helps on slow networks; slows down fast ones.")
+                }
+                .help("--compress")
+                Toggle(isOn: $job.options.stayOnOneFileSystem) {
+                    Text("Stay on one drive")
+                    Text("Skip other drives that are mounted inside the source.")
+                }
+                .help("--one-file-system")
+
+                Toggle("Limit transfer speed", isOn: Binding(
+                    get: { job.options.bandwidthLimitKBps != nil },
+                    set: { job.options.bandwidthLimitKBps = $0 ? 5_000 : nil }
+                ))
+                .help("--bwlimit")
+                if job.options.bandwidthLimitKBps != nil {
+                    LabeledContent("Maximum speed") {
+                        HStack(spacing: 6) {
+                            TextField(value: $job.options.bandwidthLimitKBps, format: .number) { EmptyView() }
+                                .labelsHidden()
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 90)
+                            Text("KB/s").foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.leading, 16)
+                }
+
+                Toggle(isOn: Binding(
+                    get: { job.options.backupDirectory != nil },
+                    set: { job.options.backupDirectory = $0 ? ".replaced" : nil }
+                )) {
+                    Text("Keep replaced and deleted files")
+                    Text("Move them into a folder at the destination instead of discarding them.")
+                }
+                .help("--backup --backup-dir")
+                if job.options.backupDirectory != nil {
+                    LabeledContent("Folder name") {
+                        TextField(text: Binding(get: { job.options.backupDirectory ?? "" },
+                                                set: { job.options.backupDirectory = $0 }),
+                                  prompt: Text(".replaced")) { EmptyView() }
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 220)
+                    }
+                    .padding(.leading, 16)
+                }
+
+                if job.mode == .mirror {
+                    SafetyRows(safety: $job.safety)
+                }
             }
         }
     }
 }
 
-private struct FiltersEditor: View {
+/// "Skip files" rules: a sub-heading row with an Add menu, then one row per rule.
+private struct FilterRows: View {
     @Binding var filters: [FilterRule]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Skip these files").font(.headline)
-                Spacer()
-                Menu("Add", systemImage: "plus") {
-                    Button("Custom Rule") { filters.append(FilterRule(pattern: "")) }
-                    Divider()
+        LabeledContent {
+            Menu("Add Rule", systemImage: "plus") {
+                Button("Custom Pattern") { filters.append(FilterRule(pattern: "")) }
+                Section("Common") {
                     ForEach(FilterRule.presets, id: \.pattern) { preset in
                         Button(preset.title) { filters.append(FilterRule(pattern: preset.pattern)) }
                             .disabled(filters.contains { $0.pattern == preset.pattern })
                     }
                 }
+            }
+            .menuStyle(.button)
+            .fixedSize()
+        } label: {
+            Text("Skip files")
+            Text(filters.isEmpty
+                 ? "Everything is copied. Add rules to skip things like caches or .DS_Store files."
+                 : "Rules apply top to bottom. End with / to match folders only; start with / to match only at the top level.")
+        }
+
+        ForEach($filters) { $rule in
+            HStack(spacing: 8) {
+                Picker(selection: $rule.kind) {
+                    Text("Skip").tag(FilterRule.Kind.exclude)
+                    Text("Always copy").tag(FilterRule.Kind.include)
+                } label: { EmptyView() }
+                .labelsHidden()
                 .fixedSize()
-            }
-            if filters.isEmpty {
-                Text("Everything is copied. Add rules to skip things like caches or .DS_Store files.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            ForEach($filters) { $rule in
-                HStack {
-                    Picker("", selection: $rule.kind) {
-                        Text("Skip").tag(FilterRule.Kind.exclude)
-                        Text("Always copy").tag(FilterRule.Kind.include)
-                    }
+                .help("Skip matching files, or always copy them even if a later rule would skip them")
+
+                TextField(text: $rule.pattern, prompt: Text("e.g. *.tmp or Caches/")) { EmptyView() }
                     .labelsHidden()
-                    .fixedSize()
-                    TextField("Pattern", text: $rule.pattern, prompt: Text("*.tmp, Caches/, /top-level-only"))
-                        .font(.body.monospaced())
-                    Toggle("", isOn: $rule.isEnabled).labelsHidden().toggleStyle(.checkbox)
-                        .help("Enabled")
-                    Button("Remove", systemImage: "minus.circle.fill") { filters.removeAll { $0.id == rule.id } }
-                        .labelStyle(.iconOnly).buttonStyle(.borderless).foregroundStyle(.secondary)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.body.monospaced())
+
+                Button("Remove Rule", systemImage: "xmark.circle.fill") {
+                    withAnimation(.snappy) { filters.removeAll { $0.id == rule.id } }
                 }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
             }
-            if !filters.isEmpty {
-                Text("Rules apply top to bottom. A trailing / matches folders only; a leading / matches from the top of the sync.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            .padding(.leading, 16)
         }
     }
 }
 
-private struct SafetyEditor: View {
+private struct SafetyRows: View {
     @Binding var safety: SafetySettings
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Mirror safety").font(.headline)
-            Toggle("Ask before deleting many files", isOn: $safety.deletionGuardEnabled)
-            if safety.deletionGuardEnabled {
-                Stepper("More than \(safety.maxDeletedFiles.formatted()) files", value: $safety.maxDeletedFiles, in: 1...1_000_000, step: 50)
-                    .padding(.leading, 20)
-                Stepper("Or more than \(Int(safety.maxDeletedFraction * 100))% of the destination",
-                        value: Binding(get: { Int(safety.maxDeletedFraction * 100) }, set: { safety.maxDeletedFraction = Double($0) / 100 }),
-                        in: 1...100, step: 5)
-                    .padding(.leading, 20)
-                Text("Scheduled runs that would delete more are skipped and you're notified.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.leading, 20)
-            }
-            Toggle("Require a preview before the first sync", isOn: $safety.requirePreviewBeforeFirstMirror)
+        Toggle(isOn: $safety.deletionGuardEnabled) {
+            Text("Ask before deleting many files")
+            Text("Scheduled runs that would delete more are skipped, and you're notified.")
         }
+        if safety.deletionGuardEnabled {
+            Stepper("More than \(safety.maxDeletedFiles.formatted()) files", value: $safety.maxDeletedFiles, in: 1...1_000_000, step: 50)
+                .padding(.leading, 16)
+            Stepper("Or more than \(Int(safety.maxDeletedFraction * 100))% of the destination",
+                    value: Binding(get: { Int(safety.maxDeletedFraction * 100) }, set: { safety.maxDeletedFraction = Double($0) / 100 }),
+                    in: 1...100, step: 5)
+                .padding(.leading, 16)
+        }
+        Toggle("Require a preview before the first sync", isOn: $safety.requirePreviewBeforeFirstMirror)
     }
 }
 
@@ -651,44 +809,55 @@ private struct AdvancedSection: View {
     var extraArgumentsError: String?
     @Binding var isExpanded: Bool
 
+    private var summary: String {
+        var parts: [String] = []
+        if !extraArgumentsText.trimmingCharacters(in: .whitespaces).isEmpty { parts.append("extra arguments") }
+        if job.options.preserveACLs { parts.append("ACLs") }
+        if job.options.preserveHardLinks { parts.append("hard links") }
+        if job.hooks.beforeRun != nil || job.hooks.afterRun != nil { parts.append("commands") }
+        return parts.isEmpty ? "rsync arguments, permissions, before and after commands" : parts.joined(separator: " · ").capitalizedFirst
+    }
+
     var body: some View {
         Section {
-            DisclosureGroup(isExpanded: $isExpanded) {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Extra rsync arguments").font(.headline)
-                        TextField("", text: $extraArgumentsText, prompt: Text("--numeric-ids --exclude='My Folder'"))
-                            .font(.body.monospaced())
-                        if let extraArgumentsError {
-                            Text(extraArgumentsError).font(.caption).foregroundStyle(.red)
-                        } else {
-                            Text("Added as-is, after \(AppInfo.name)'s own options. Quote values with spaces.")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
+            CollapsibleHeader(title: "Advanced", symbol: "wrench.and.screwdriver", summary: summary, isExpanded: $isExpanded)
 
-                    Toggle("Keep ACLs (access control lists)", isOn: $job.options.preserveACLs)
-                        .help("--acls")
-                    Toggle("Keep hard links", isOn: $job.options.preserveHardLinks)
-                        .help("--hard-links")
-                    if job.mode == .mirror {
-                        Toggle("Also delete skipped files at the destination", isOn: $job.options.deleteExcluded)
-                            .help("--delete-excluded")
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Extra rsync arguments")
+                    TextField(text: $extraArgumentsText, prompt: Text("--numeric-ids --exclude='My Folder'")) { EmptyView() }
+                        .labelsHidden()
+                        .textFieldStyle(.roundedBorder)
+                        .font(.body.monospaced())
+                    if let extraArgumentsError {
+                        Text(extraArgumentsError).font(.caption).foregroundStyle(.red)
+                    } else {
+                        Text("Added after \(AppInfo.name)'s own options. Quote values that contain spaces.")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-
-                    Divider()
-                    HookEditor(title: "Before sync", text: Binding(get: { job.hooks.beforeRun ?? "" },
-                                                                    set: { job.hooks.beforeRun = $0.isEmpty ? nil : $0 }))
-                    Toggle("Don't sync if this command fails", isOn: $job.hooks.abortIfBeforeRunFails)
-                        .disabled(job.hooks.beforeRun == nil)
-                    HookEditor(title: "After sync", text: Binding(get: { job.hooks.afterRun ?? "" },
-                                                                   set: { job.hooks.afterRun = $0.isEmpty ? nil : $0 }))
-                    Text("Shell commands run with zsh. Available variables: $SYNC_NAME, $SYNC_SOURCE, $SYNC_DESTINATION, $SYNC_TRIGGER, and $SYNC_EXIT_CODE (after sync).")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.top, 8)
-            } label: {
-                Label("Advanced", systemImage: "wrench.and.screwdriver")
+                .padding(.vertical, 4)
+
+                Toggle("Keep ACLs (access control lists)", isOn: $job.options.preserveACLs)
+                    .help("--acls")
+                Toggle("Keep hard links", isOn: $job.options.preserveHardLinks)
+                    .help("--hard-links")
+                if job.mode == .mirror {
+                    Toggle("Also delete skipped files at the destination", isOn: $job.options.deleteExcluded)
+                        .help("--delete-excluded")
+                }
+
+                HookEditor(title: "Before syncing, run", text: Binding(get: { job.hooks.beforeRun ?? "" },
+                                                                         set: { job.hooks.beforeRun = $0.isEmpty ? nil : $0 }))
+                if job.hooks.beforeRun != nil {
+                    Toggle("Don't sync if this command fails", isOn: $job.hooks.abortIfBeforeRunFails)
+                        .padding(.leading, 16)
+                }
+                HookEditor(title: "After syncing, run", text: Binding(get: { job.hooks.afterRun ?? "" },
+                                                                        set: { job.hooks.afterRun = $0.isEmpty ? nil : $0 }))
+                Text("Commands run with zsh and can use $SYNC_NAME, $SYNC_SOURCE, $SYNC_DESTINATION, $SYNC_TRIGGER and, after syncing, $SYNC_EXIT_CODE.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -699,16 +868,21 @@ private struct HookEditor: View {
     @Binding var text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.headline)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
             TextEditor(text: $text)
                 .font(.body.monospaced())
-                .frame(height: 48)
+                .frame(height: 44)
                 .scrollContentBackground(.hidden)
                 .padding(4)
-                .background(.background.secondary, in: .rect(cornerRadius: 6))
+                .background(Color.primary.opacity(0.05), in: .rect(cornerRadius: 6))
         }
+        .padding(.vertical, 4)
     }
+}
+
+private extension String {
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }
 
 // MARK: - Command preview

@@ -66,12 +66,7 @@ private struct DetailRouter: View {
         case .servers:
             ServersView()
         default:
-            if model.jobs.isEmpty {
-                WelcomeView()
-            } else {
-                ContentUnavailableView("Select a Sync", systemImage: "arrow.triangle.2.circlepath",
-                                       description: Text("Choose a sync in the sidebar, or create a new one."))
-            }
+            HomeView()
         }
     }
 }

@@ -16,6 +16,7 @@ final class AppModel {
     }
 
     enum SidebarItem: Hashable {
+        case home
         case sync(UUID)
         case activity
         case servers
@@ -35,7 +36,7 @@ final class AppModel {
     var saveError: String?
 
     // Navigation
-    var selection: SidebarItem?
+    var selection: SidebarItem? = .home
     var editor: EditorRequest?
 
     let libraryStore: LibraryStore
@@ -59,8 +60,6 @@ final class AppModel {
 
         runs = RunCoordinator(model: self)
         scheduler = SchedulerService(model: self)
-        selection = library.jobs.first.map { .sync($0.id) }
-
         Task { await locateRsync() }
     }
 
@@ -142,7 +141,7 @@ final class AppModel {
         library.jobs.removeAll { $0.id == jobID }
         history.deleteHistory(for: jobID)
         recordsByJob[jobID] = nil
-        if selection == .sync(jobID) { selection = library.jobs.first.map { .sync($0.id) } }
+        if selection == .sync(jobID) { selection = .home }
         persist()
         scheduler.reschedule()
     }

@@ -10,6 +10,9 @@ struct SidebarView: View {
         @Bindable var model = model
 
         List(selection: $model.selection) {
+            Label("Home", systemImage: "house")
+                .tag(AppModel.SidebarItem.home)
+
             if !model.jobs.isEmpty {
                 Section("Syncs") {
                     jobRows(in: nil)
@@ -152,7 +155,7 @@ struct SyncRow: View {
             } else {
                 Text(run.phase.label)
             }
-        } else if let record = model.lastRecord(for: job.id) {
+        } else if let record = model.lastSync(for: job.id) {
             Text(record.headline)
         } else {
             Text("Never synced")
@@ -173,7 +176,7 @@ struct SyncRow: View {
         } else if job.schedule != nil && !job.isEnabled {
             Image(systemName: "pause.circle").foregroundStyle(.secondary)
                 .help("Schedule paused")
-        } else if let record = model.lastRecord(for: job.id), record.outcome == .failed || record.outcome == .warning {
+        } else if let record = model.lastSync(for: job.id), record.outcome == .failed || record.outcome == .warning {
             Image(systemName: record.outcome.symbol).foregroundStyle(record.outcome.color)
                 .help(record.message ?? record.outcome.label)
         }

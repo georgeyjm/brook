@@ -22,7 +22,7 @@ struct MenuBarLabel: View {
     private var hasRecentProblem: Bool {
         let _ = model.historyRevision
         return model.jobs.contains { job in
-            guard let last = model.lastRecord(for: job.id) else { return false }
+            guard let last = model.lastSync(for: job.id) else { return false }
             return last.outcome == .failed
         }
     }
@@ -121,12 +121,12 @@ private struct MenuBarRow: View {
                     }
                 } else {
                     let _ = model.historyRevision
-                    Text(model.lastRecord(for: job.id)?.headline ?? "Never synced")
+                    Text(model.lastSync(for: job.id)?.headline ?? "Never synced")
                         .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
             Spacer(minLength: 0)
-            if let last = model.lastRecord(for: job.id), !running, last.outcome == .failed || last.outcome == .warning {
+            if let last = model.lastSync(for: job.id), !running, last.outcome == .failed || last.outcome == .warning {
                 Image(systemName: last.outcome.symbol).foregroundStyle(last.outcome.color)
             }
             Button {
@@ -144,5 +144,6 @@ private struct MenuBarRow: View {
         .contentShape(.rect)
         .onHover { isHovered = $0 }
         .onTapGesture(perform: open)
+        .accessibilityAction(named: "Open", open)
     }
 }
